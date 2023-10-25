@@ -1,4 +1,4 @@
-# Kafka
+# KafkaGo
 Using Kafka to connect microservice and keeping them highly available.
 Even if they go down (for example) when they come back up they can start reading from where they stopped.
 
