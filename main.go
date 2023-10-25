@@ -8,9 +8,45 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
+// places orders, even if order processor is down
+type OrderPlacer struct {
+	producer  *kafka.Producer
+	topic     string
+	deliverCh chan kafka.Event
+}
+
+func NewOrderPlacer(p *kafka.Producer, topic string) *OrderPlacer {
+	return &OrderPlacer{
+		producer:  p,
+		topic:     topic,
+		deliverCh: make(chan kafka.Event, 10000),
+	}
+}
+
+func (op *OrderPlacer) placeOrder(orderType string, size int) error {
+	var (
+		format  = fmt.Sprintf("%s - %d", orderType, size)
+		payload = []byte(format)
+	)
+
+	err := op.producer.Produce(&kafka.Message{
+		TopicPartition: kafka.TopicPartition{
+			Topic:     &op.topic,
+			Partition: kafka.PartitionAny,
+		},
+		Value: payload,
+	},
+		op.deliverCh,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	<-op.deliverCh
+	return nil
+}
+
 func main() {
-	// copied from docs
-	topic := "royboi"
 	p, err := kafka.NewProducer(&kafka.ConfigMap{
 		"bootstrap.servers": "localhost:9092",
 		"client.id":         "foo",
@@ -20,45 +56,11 @@ func main() {
 		fmt.Printf("Failed to create producer: %s\n", err)
 	}
 
-	go func() {
-		consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
-			"bootstrap.servers": "localhost:9092",
-			"group.id":          "foo",
-			"auto.offset.reset": "smallest",
-		})
-
-		if err != nil {
+	op := NewOrderPlacer(p, "royboi")
+	for i := 0; i < 1000; i++ {
+		if err := op.placeOrder("newOrders!", i+1); err != nil {
 			log.Fatal(err)
 		}
-		err = consumer.Subscribe(topic, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		for {
-			ev := consumer.Poll(100)
-			switch e := ev.(type) {
-			case *kafka.Message:
-				fmt.Printf("consumed message from queue: %s\n", string(e.Value))
-			case *kafka.Error:
-				fmt.Printf("%v\n", e)
-			}
-		}
-	}()
-
-	deliverCh := make(chan kafka.Event, 10000)
-	for {
-		err = p.Produce(&kafka.Message{
-			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-			Value:          []byte("FOO"),
-		},
-			deliverCh,
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		<-deliverCh
 		time.Sleep(time.Second * 3)
 	}
 }
