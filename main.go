@@ -43,6 +43,7 @@ func (op *OrderPlacer) placeOrder(orderType string, size int) error {
 	}
 
 	<-op.deliverCh
+	fmt.Printf("placed order on queue %s\n", format)
 	return nil
 }
 
